@@ -1,4 +1,4 @@
-function youbot_navigation_test_v1()
+function [q, q_ref] = youbot_navigation_test_v1()
 close all;
 disp('Program started');
 %vrep = remApi('remoteApi', 'extApi.h');
@@ -59,8 +59,6 @@ leftRightVel = 0; % Speed according to y axis
 rotVel = 0; % Speed around z axis
 prevOri = 0; prevLoc = 0;
 
-dt_VREP = 0.05;
-
 disp('Starting robot');
 
 % Set the arm to its starting configuration:
@@ -83,13 +81,10 @@ pause(2);
 vrchk(vrep, res, true);
 fsm = 'rotate';
 
+RTr = [-1 0 0 7.5; 0 -1 0 7.5; 0 0 1 0; 0 0 0 1]; % matrix to have the ref in the lower left corner
 side_map = 15;
-cell = 0.25;
+cell = 0.125;
 map = zeros(side_map/cell, side_map/cell);
-cost = ones(size(map));
-start = [56,56];
-%ds = Dstar(map, 'quiet');    % create navigation object
-ds = Dstar(map);    % create navigation object
 path = [];
 while true,
     tic
@@ -111,7 +106,6 @@ while true,
     pts_abs = homtrans(youbot2absTrans, pts(:, contacts));
     pts2 = [pts_abs; ones(1, size(pts_abs, 2))];
     % RTr = [-1 0 0 7.5; 0 1 0 7.5; 0 0 -1 0; 0 0 0 1];
-    RTr = [-1 0 0 7.5; 0 -1 0 7.5; 0 0 1 0; 0 0 0 1]; % matrix to have the ref in the lower left corner
     pts_final = RTr * pts2;
     pts_final = ceil(pts_final/cell);
     map(sub2ind(size(map), pts_final(2,:), pts_final(1,:))) = 1; % % http://nl.mathworks.com/company/newsletters/articles/matrix-indexing-in-matlab.html
@@ -120,8 +114,8 @@ while true,
     hold on;
     plot(col,row,'.r');
     hold off;
-    xlim([1,60]);
-    ylim([1,60]);
+    xlim([1,15/cell]);
+    ylim([1,15/cell]);
     drawnow;
     
     angl = -pi/2;
@@ -137,25 +131,32 @@ while true,
         if isempty(path) || any(map(sub2ind(size(map), path(:,2), path(:,1)))) % If no path or a point of the path in which we want to go crosses a wall
             
             forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
+            %youbotPos
             start = RTr*([youbotPos.'; 1]);
-            start = ceil(start(1:2)/cell);
-            goal = [58,42];
-            %cost(map(:,:)==1) = Inf;
-            for i = 1:length(row)
-                ds.costmap_modify( [col(i),row(i)], Inf);
-                %mapDstar(i,j) = Inf;
+            start = ceil(start(1:2)/cell).';
+            goal = [116,84];
+            % Use of DT algorithm to move
+            fprintf('Computing a new path \n');
+            dx = DXform(map);
+            dx.plan(goal) 
+            path = dx.path(start);
+            path = [start; path];
+            via = [path((path(1:end-1,1) ~= path(2:end,1)) & (path(1:end-1,2) ~= path(2:end,2)),:);goal];
+            if isempty(path)
+                q = mstraj([start;goal], [0.8,0.8], [] ,start, timestep, 0);
+            else
+                q = mstraj(via, [0.8,0.8], [] ,start(1,:), timestep, 0);
             end
-
-            %ds = Dstar(map);    % create navigation object
-            ds.plan(goal);       % create plan for specified goal
-            path = ds.path(start);
-            q = mstraj(path, [0.8,0.8], [] ,[path(1,1), path(1,2)], dt_VREP, 0);
+            %q = mstraj(path, [0.8,0.8], [] ,[start(1), start(2)], timestep, 0);
+            q = [q, zeros(length(q),1), 4*ones(length(q),1)].';
+            q_ref = (RTr\q)*cell;
+            fprintf('Computing a new path finished \n');
             subplot(111)
             hold on;
             plot(path(:,1),path(:,2),'.g');
             hold off;
             drawnow;
-            step_move = 0;
+            step_move = 1;
         end
         
 %        forwBackVel = -(youbotPos(1)+3.167);
@@ -172,8 +173,13 @@ while true,
 % 
 %             fsm = 'finished';
 %         end
-        if step_move < length(q)
-            forwBackVel = q(cnt,1)-;
+        if step_move < size(q_ref,2)
+            forwBackVel = (q_ref(1,step_move+1)-q_ref(1,step_move))/timestep;
+            leftRightVel = -(q_ref(2,step_move+1)-q_ref(2,step_move))/timestep;
+            step_move = step_move + 1;
+        else
+            
+            fsm = 'finished';
         end
         
         prevLoc = youbotPos(1);
