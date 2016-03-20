@@ -221,12 +221,13 @@ while true,
 
         q = (via*cell).';
         q_ref = homtrans(inv(RTr),q);
+        cnt = 1;
         sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
-        if sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2 && size(q_ref,2) > 1
+        if sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.15 && size(q_ref,2) > 1
             q_ref = q_ref(:,2:end);
+            cnt = 2;
         end
         fprintf('Computing a new path finished \n');
-        cnt = 1;
         fsm = 'rotate';
         fprintf('Rotate \n');
         
