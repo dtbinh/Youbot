@@ -90,7 +90,7 @@ cell = 0.125;
 map = zeros(side_map/cell, side_map/cell);
 map_seen = ones(side_map/cell, side_map/cell);
 path = [];
-step_path = ceil(0.5/cell);
+step_path = ceil(1/cell);
 cnt_rotate = 0;
 cnt_drive = 0;
 cnt_path = 0;
@@ -270,7 +270,8 @@ while true,
     elseif strcmp(fsm, 'rotate'),
         forwBackVel = 0;
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
+        errRot
+        if (abs(errRot) < 0.01) && (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             prevErrRot = 0;
@@ -292,10 +293,21 @@ while true,
     elseif strcmp(fsm, 'drive'),
         
         %[errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        %if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < .01/180*pi),
+        %if (abs(errRot) < 0.01) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
         %    rotVel = 0;
         %    h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
         %    prevErrRot = 0;
+        %    
+        %    if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
+        %        cnt_path = 0;
+        %        fsm = 'path';
+        %    else
+        %        prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
+        %        cnt_drive = 0;
+        %        drive_sign = -1;
+        %        fsm = 'drive';
+        %        fprintf('Drive \n');
+        %    end
         %end
         %prevOri = youbotEuler(3);
         %prevErrRot = errRot;
@@ -304,39 +316,53 @@ while true,
         %vrchk(vrep, res, true);
         
         cnt_drive = cnt_drive + 1;
+        rotVel = 0;
         [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), drive_sign, prevErrDr);
-        if cnt_drive == 35
-            %curr_dist_target
-            %prev_dist_target
+        if cnt_drive == 5
+            curr_dist_target
+            prev_dist_target
             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
-                fprintf('I ichange of sign ! \n');
-                drive_sign = -drive_sign;
+                %fprintf('I ichange of sign ! \n');
+                %drive_sign = -drive_sign;
+                forwBackVel = 0;
                 rotVel = 0; % We do not need to rotate just to rear
+                if abs(curr_dist_target) > 0.25
+                    fsm = 'rotate';
+                    fprintf('Rotate beacause via passed \n');
+                    lol = curr_dist_target
+                end
             end
             prev_dist_target = curr_dist_target;
             cnt_drive = 0;
         end
         prevErrDr = errDr;
         
-        if ((abs(curr_dist_target) < 0.1) && cnt < size(via, 1)) || ((abs(curr_dist_target) < 0.01) && cnt == size(via, 1)) %nextPDrive(2)
+        %if ((abs(curr_dist_target) < 0.1) && cnt < size(via, 1)) || ((abs(curr_dist_target) < 0.01) && cnt == size(via, 1)) %nextPDrive(2)
+        if ( abs(curr_dist_target) < 0.1 )
             forwBackVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-            %if cnt < length(via)
             if cnt < size(via, 1)
                 cnt = cnt +1;
                 prevErrDr = 0;
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
+                if prev_dist_target < 0.2 && (cnt+1) < size(via, 1) % If the next point is too closed we go to 2 points after
+                    cnt = cnt +1;
+                    prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
+                end
+                prev_dist_target
+                fprintf('Next point \n');
                 fsm = 'rotate';
                 fprintf('Rotate \n');   
             else
                 cnt_finished_path = 0;
                 fsm = 'finished_curr_path';
             end
-        elseif(abs(errRot) > 0.1745 && abs(curr_dist_target) > 0.3) % 10°
-            forwBackVel = 0;
-            h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-            fsm = 'rotate';
-            fprintf('Rotate \n');
+%         elseif(abs(errRot) > 0.1745 && abs(curr_dist_target) > 0.5) % 10°
+%             forwBackVel = 0;
+%             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+%             fsm = 'rotate';
+%             curr_dist_target
+%             fprintf('Rotate \n');
         end
         
         if cnt < length(true_index_via) && any(map(sub2ind(size(map), path((true_index_via(cnt):true_index_via(cnt+1)),2), path((true_index_via(cnt):true_index_via(cnt+1)),1)))) 
