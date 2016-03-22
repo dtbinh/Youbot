@@ -84,7 +84,7 @@ vrchk(vrep, res, true);
 fsm = 'path';
  
 RTr = [-1 0 7.5; 0 -1 7.5; 0 0 1];
-StructEl = ones(7,7);
+StructEl = ones(9,9);
 side_map = 15;
 cell = 0.125;
 map = zeros(side_map/cell, side_map/cell);
@@ -160,6 +160,7 @@ while true,
     map_seen(sub2ind(size(map_seen), hokuyo1_map(2), hokuyo1_map(1))) = 0;
     map_seen(sub2ind(size(map_seen), hokuyo2_map(2), hokuyo2_map(1))) = 0;
     map_seen(sub2ind(size(map_seen), youbot_abs(2), youbot_abs(1))) = 0;
+    map_seen(index_dilate) = 0;
     
     [row_map_seen, col_map_seen] = find(map_seen(:,:) == 1);
     [row, col] = find(map(:,:) == 1);
@@ -168,7 +169,13 @@ while true,
     if ~(isempty(path))
         hold on;
         plot(path(:,1),path(:,2),'.g');
+%         pre_cnt = cnt
+%         pre_len = length(via)
+%         pre_via = via
         plot(via(cnt,1),via(cnt,2), '.k');
+        %cnt
+        %via(cnt,:)
+        %len = length(via)
     end
     hold on;
     plot(youbot_abs(1),youbot_abs(2),'.m');
@@ -208,7 +215,7 @@ while true,
             %goal = [10,70];
             goal_ind = findGoal(map_seen);
             [y, x] = ind2sub(size(map_seen), goal_ind);
-            goal = [y x];
+            goal = [x y]
             fprintf('Computing a new path \n');
             % Use of DT algorithm to move
             %dx = DXform(map);
@@ -222,34 +229,39 @@ while true,
             % To take every x meters a point
             %path = [start;path;goal]; % DT need
             path = [start;path]; % Dstar need
-            angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
-            ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
-            ind_angles = find(ind_angles == 1);
-            true_index_via = [];
-            if(isempty(ind_angles))
-                true_index_via = [step_path:step_path:length(path)-1];
-                true_index_via = [true_index_via, length(path)];
-                via = path(true_index_via(:),:);
+            if size(path, 1)>2
+                angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
+                ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
+                ind_angles = find(ind_angles == 1);
+                true_index_via = [];
+                if(isempty(ind_angles))
+                    true_index_via = [step_path:step_path:length(path)-1];
+                    true_index_via = [true_index_via, length(path)];
+                    via = path(true_index_via(:),:);
+                else
+                    for i = 1:length(ind_angles)-1
+                        true_index_via = [true_index_via, ind_angles(i):step_path:(ind_angles(i+1)-1)];
+                    end
+                    if length(ind_angles) == 1
+                        true_index_via = [ind_angles];
+                    end
+                    true_index_via = [step_path:step_path:true_index_via(1),true_index_via, ind_angles(end), true_index_via(end)+step_path:step_path:(length(path)-1), length(path)];
+                    via = path(true_index_via(:),:);
+                    true_index_via = [1, true_index_via]; % Trick to know the path between previous via and next one
+                end
             else
-                for i = 1:length(ind_angles)-1
-                    true_index_via = [true_index_via, ind_angles(i):step_path:(ind_angles(i+1)-1)];
-                end
-                if length(ind_angles) == 1
-                    true_index_via = [ind_angles];
-                end
-                true_index_via = [step_path:step_path:true_index_via(1),true_index_via, ind_angles(end), true_index_via(end)+step_path:step_path:(length(path)-1), length(path)];
-                via = path(true_index_via(:),:);
-                true_index_via = [1, true_index_via]; % Trick to know the path between previous via and next one
+                via = path(end,:);
+                true_index_via = [2];
             end
             q = double((via*cell).');
-            q_ref = homtrans(inv(RTr),q);
+            q_ref = homtrans(inv(RTr),q)
             %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
             cnt = 1;
-            if sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2 && size(q_ref,2) > 1
+            if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
                 q_ref = q_ref(:,2:end);
                 via = via(2:end,:);
                 true_index_via = true_index_via(2:end);
-                cnt = 2;
+                %cnt = 2;
             end
             fprintf('Computing a new path finished \n');
             fprintf('Rotate \n');
@@ -258,7 +270,7 @@ while true,
     elseif strcmp(fsm, 'rotate'),
         forwBackVel = 0;
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < .01/180*pi),
+        if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             prevErrRot = 0;
@@ -269,7 +281,7 @@ while true,
             else
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
                 cnt_drive = 0;
-                drive_signe = -1;
+                drive_sign = -1;
                 fsm = 'drive';
                 fprintf('Drive \n');
             end
@@ -279,26 +291,26 @@ while true,
         
     elseif strcmp(fsm, 'drive'),
         
-        [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < .01/180*pi),
-            rotVel = 0;
-            h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-            prevErrRot = 0;
-        end
-        prevOri = youbotEuler(3);
-        prevErrRot = errRot;
+        %[errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
+        %if (abs(rotVel) < .1/180*pi) && (abs(angdiff(prevOri, youbotEuler(3))) < .01/180*pi),
+        %    rotVel = 0;
+        %    h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+        %    prevErrRot = 0;
+        %end
+        %prevOri = youbotEuler(3);
+        %prevErrRot = errRot;
         %[res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1,...
         %    vrep.simx_opmode_buffer); %-1 is to retrieve the absolute position of the object
         %vrchk(vrep, res, true);
         
         cnt_drive = cnt_drive + 1;
-        [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), drive_signe, prevErrDr);
-        if cnt_drive == 5
+        [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), drive_sign, prevErrDr);
+        if cnt_drive == 35
             %curr_dist_target
             %prev_dist_target
             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
                 fprintf('I ichange of sign ! \n');
-                drive_signe = -drive_signe;
+                drive_sign = -drive_sign;
                 rotVel = 0; % We do not need to rotate just to rear
             end
             prev_dist_target = curr_dist_target;
@@ -306,13 +318,16 @@ while true,
         end
         prevErrDr = errDr;
         
-        if ((abs(curr_dist_target) < 0.1) && cnt < length(via)) || ((abs(curr_dist_target) < 0.01) && cnt == length(via)) %nextPDrive(2)
+        if ((abs(curr_dist_target) < 0.1) && cnt < size(via, 1)) || ((abs(curr_dist_target) < 0.01) && cnt == size(via, 1)) %nextPDrive(2)
             forwBackVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-            if cnt < length(via)
+            %if cnt < length(via)
+            if cnt < size(via, 1)
                 cnt = cnt +1;
                 prevErrDr = 0;
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
+                fsm = 'rotate';
+                fprintf('Rotate \n');   
             else
                 cnt_finished_path = 0;
                 fsm = 'finished_curr_path';
@@ -334,6 +349,7 @@ while true,
         h = youbot_drive(vrep, h, 0, 0, 0);
         cnt_finished_path = cnt_finished_path + 1;
         if cnt_finished_path == 20
+            fprintf('Finished the current path \n');
             if any(map_seen)
                 cnt_path = 0;
                 fsm = 'path';
