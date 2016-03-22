@@ -88,7 +88,7 @@ StructEl = ones(7,7);
 side_map = 15;
 cell = 0.125;
 map = zeros(side_map/cell, side_map/cell);
-map_seen = zeros(side_map/cell, side_map/cell);
+map_seen = ones(side_map/cell, side_map/cell);
 path = [];
 step_path = ceil(0.5/cell);
 cnt_rotate = 0;
@@ -111,11 +111,9 @@ while true,
     [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
     %We receive the seen points and the obstacles as coordinates in comparison to the youbot
     youbot2absTrans = transl(youbotPos) * trotx(youbotEuler(1)) * troty(youbotEuler(2)) * trotz(youbotEuler(3));
-    pts_abs = homtrans(youbot2absTrans, pts(:, contacts));
-    %pts2 = [pts_abs; ones(1, size(pts_abs, 2))];
-    % RTr = [-1 0 0 7.5; 0 1 0 7.5; 0 0 -1 0; 0 0 0 1];
+    youbot_abs = ceil( (homtrans(RTr,[youbotPos(1); youbotPos(2)]))/cell);
+    pts_abs = homtrans(youbot2absTrans, pts);
     pts_final = homtrans(RTr,pts_abs(1:2,:));
-    %pts_final = RTr * pts2;
     pts_final = ceil(pts_final/cell);
     for i = 1:1:size(pts_final, 2)
         if pts_final(1, i) > floor(15/cell-2)
@@ -133,15 +131,39 @@ while true,
     end
     
     map2 = zeros(size(map));
-    map2(sub2ind(size(map), pts_final(2,:), pts_final(1,:))) = 1; % % http://nl.mathworks.com/company/newsletters/articles/matrix-indexing-in-matlab.html
+    map2(sub2ind(size(map), pts_final(2,contacts), pts_final(1,contacts))) = 1; % % http://nl.mathworks.com/company/newsletters/articles/matrix-indexing-in-matlab.html
     map2 = idilate(map2, StructEl);
     index_dilate = ((map2-map) == 1);
     map(index_dilate) = 1;
+
+    %hokuyo1_abs = homtrans(youbot2absTrans,[h.hokuyo1Pos(1);h.hokuyo1Pos(2)]);
+    hokuyo1_abs = homtrans(youbot2absTrans,h.hokuyo1Pos.');
+    hokuyo2_abs = homtrans(youbot2absTrans,h.hokuyo2Pos.');
+    %hokuyo2_abs = homtrans(youbot2absTrans,[h.hokuyo2Pos(1);h.hokuyo2Pos(2)]);
     
-    youbot_abs = ceil( (homtrans(RTr,[youbotPos(1); youbotPos(2)]))/cell);
+    hokuyo1_map = ceil(homtrans(RTr, [hokuyo1_abs(1);hokuyo1_abs(2)])/cell);
+    hokuyo2_map = ceil(homtrans(RTr, [hokuyo2_abs(1);hokuyo2_abs(2)])/cell);
+    
+    x_left_robot = max(1, (youbot_abs(1) - (5/cell)) );
+    x_right_robot = min(length(map), (youbot_abs(1) + (5/cell)) );
+    y_up_robot = min(length(map), (youbot_abs(2) + (5/cell)) );
+    y_down_robot = max(1,(youbot_abs(2) - (5/cell)) );
+    
+    [X,Y] = meshgrid(x_left_robot:1:x_right_robot, y_down_robot:1:y_up_robot); 
+    X = reshape(X, 1, []);
+    Y = reshape(Y, 1, []);
+
+    in = inpolygon(X,Y, [hokuyo1_map(1) pts_final(1,:) hokuyo2_map(1)],...
+                    [hokuyo1_map(2) pts_final(2,:) hokuyo2_map(2)]);                
+   
+    map_seen(sub2ind(size(map_seen), Y(in), X(in))) = 0;
+    map_seen(sub2ind(size(map_seen), hokuyo1_map(2), hokuyo1_map(1))) = 0;
+    map_seen(sub2ind(size(map_seen), hokuyo2_map(2), hokuyo2_map(1))) = 0;
+    map_seen(sub2ind(size(map_seen), youbot_abs(2), youbot_abs(1))) = 0;
+    
+    [row_map_seen, col_map_seen] = find(map_seen(:,:) == 1);
     [row, col] = find(map(:,:) == 1);
-    subplot(111)
-    
+    subplot(211)
     plot(col,row,'.r');
     if ~(isempty(path))
         hold on;
@@ -153,6 +175,12 @@ while true,
     hold off;
     xlim([1,15/cell]);
     ylim([1,15/cell]);
+    
+    subplot(212)
+    plot(col_map_seen,row_map_seen,'.r');
+    xlim([1,15/cell]);
+    ylim([1,15/cell]);
+    
     drawnow;
     
     % If there is an obstacle on the path
@@ -179,7 +207,8 @@ while true,
             %goal = ([20,10])
             %goal = [10,70];
             goal_ind = findGoal(map_seen);
-            goal = map(1);
+            [y, x] = ind2sub(size(map_seen), goal_ind);
+            goal = [y x];
             fprintf('Computing a new path \n');
             % Use of DT algorithm to move
             %dx = DXform(map);
@@ -190,25 +219,17 @@ while true,
             DS = Dstar(map, 'quiet');
             DS.plan(goal);
             path = DS.path(start);
-           % To only take the pivots points
-    %         path = [start;path;goal];
-
-    %         angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
-    %         ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
-    %         via = path(ind_angles,:);
-    %         via = [via; goal]
-
             % To take every x meters a point
             %path = [start;path;goal]; % DT need
-            path = [start;path] % Dstar need
-            angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1))
-            ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)]
-            ind_angles = find(ind_angles == 1)
+            path = [start;path]; % Dstar need
+            angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
+            ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
+            ind_angles = find(ind_angles == 1);
             true_index_via = [];
             if(isempty(ind_angles))
                 true_index_via = [step_path:step_path:length(path)-1];
                 true_index_via = [true_index_via, length(path)];
-                via = path(true_index_via(:),:)
+                via = path(true_index_via(:),:);
             else
                 for i = 1:length(ind_angles)-1
                     true_index_via = [true_index_via, ind_angles(i):step_path:(ind_angles(i+1)-1)];
@@ -293,8 +314,8 @@ while true,
                 prevErrDr = 0;
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
             else
-                cnt_finished = 0;
-                fsm = 'finished';
+                cnt_finished_path = 0;
+                fsm = 'finished_curr_path';
             end
         elseif(abs(errRot) > 0.1745 && abs(curr_dist_target) > 0.3) % 10°
             forwBackVel = 0;
@@ -309,6 +330,18 @@ while true,
         end
         
         
+    elseif strcmp(fsm, 'finished_curr_path'),
+        h = youbot_drive(vrep, h, 0, 0, 0);
+        cnt_finished_path = cnt_finished_path + 1;
+        if cnt_finished_path == 20
+            if any(map_seen)
+                cnt_path = 0;
+                fsm = 'path';
+            else
+                cnt_finished = 0;
+                fsm = 'finished';
+            end
+        end
     elseif strcmp(fsm, 'finished'),
         h = youbot_drive(vrep, h, 0, 0, 0);
         cnt_finished = cnt_finished + 1;
