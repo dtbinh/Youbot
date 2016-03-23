@@ -88,9 +88,9 @@ StructEl = ones(9,9);
 StructSeen = ones(4,4);
 side_map = 15;
 cell = 0.125;
+prev_goal = [1,120];
 map = zeros(side_map/cell, side_map/cell);
 map_seen = true(side_map/cell, side_map/cell);
-map_seen_2 = true(side_map/cell, side_map/cell);
 
 path = [];
 step_path = ceil(1.25/cell);
@@ -202,6 +202,7 @@ while true,
         leftRightVel = 0;
         rotVel = 0;
         h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+        cnt_path = 0;
         fsm = 'path';
     end
     
@@ -219,9 +220,12 @@ while true,
             %goal = [116,84];
             %goal = ([20,10])
             %goal = [10,70];
-            goal_ind = findGoal(map_seen);
+            %goal_ind = findGoal(map_seen);
+            goal_ind = findGoal(map_seen, prev_goal, cell);
             [y, x] = ind2sub(size(map_seen), goal_ind);
             goal = [x y]
+            prev_goal = goal;
+            nb_undiscovered_el = sum(map_seen(:)) 
             if(sum(map_seen(:)) < 7)
                 map_seen(:) = 0;
                 fsm = 'finished';
@@ -239,44 +243,43 @@ while true,
                 % To take every x meters a point
                 %path = [start;path;goal]; % DT need
                 path = [start;path]; % Dstar need
-            end
-            if size(path, 1)>2
-                angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
-                ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
-                ind_angles = find(ind_angles == 1);
-                true_index_via = [];
-                if(isempty(ind_angles))
-                    true_index_via = [step_path:step_path:length(path)-1];
-                    true_index_via = [true_index_via, length(path)];
-                    via = path(true_index_via(:),:);
-                else
-                    for i = 1:length(ind_angles)-1
-                        true_index_via = [true_index_via, ind_angles(i):step_path:(ind_angles(i+1)-1)];
+                if size(path, 1)>2
+                    angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
+                    ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
+                    ind_angles = find(ind_angles == 1);
+                    true_index_via = [];
+                    if(isempty(ind_angles))
+                        true_index_via = [step_path:step_path:length(path)-1];
+                        true_index_via = [true_index_via, length(path)];
+                        via = path(true_index_via(:),:);
+                    else
+                        for i = 1:length(ind_angles)-1
+                            true_index_via = [true_index_via, ind_angles(i):step_path:(ind_angles(i+1)-1)];
+                        end
+                        if length(ind_angles) == 1
+                            true_index_via = [ind_angles];
+                        end
+                        true_index_via = [step_path:step_path:true_index_via(1),true_index_via, ind_angles(end), true_index_via(end)+step_path:step_path:(length(path)-1), length(path)];
+                        via = path(true_index_via(:),:);
+                        true_index_via = [1, true_index_via]; % Trick to know the path between previous via and next one
                     end
-                    if length(ind_angles) == 1
-                        true_index_via = [ind_angles];
-                    end
-                    true_index_via = [step_path:step_path:true_index_via(1),true_index_via, ind_angles(end), true_index_via(end)+step_path:step_path:(length(path)-1), length(path)];
-                    via = path(true_index_via(:),:);
-                    true_index_via = [1, true_index_via]; % Trick to know the path between previous via and next one
+                elseif size(path, 1)==2
+                    via = path(end,:);
+                    true_index_via = [2];
                 end
-            elseif size(path, 1)==2
-                via = path(end,:);
-                true_index_via = [2];
+                q = double((via*cell).');
+                q_ref = homtrans(inv(RTr),q);
+                %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
+                cnt = 1;
+                if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
+                    q_ref = q_ref(:,2:end);
+                    via = via(2:end,:);
+                    true_index_via = true_index_via(2:end);
+                end
+                fprintf('Computing a new path finished \n');
+                fprintf('Rotate \n');
+                fsm = 'rotate';
             end
-            q = double((via*cell).');
-            q_ref = homtrans(inv(RTr),q)
-            %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
-            cnt = 1;
-            if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
-                q_ref = q_ref(:,2:end);
-                via = via(2:end,:);
-                true_index_via = true_index_via(2:end);
-                %cnt = 2;
-            end
-            fprintf('Computing a new path finished \n');
-            fprintf('Rotate \n');
-            fsm = 'rotate';
         end
     elseif strcmp(fsm, 'rotate'),
         forwBackVel = 0;
@@ -293,8 +296,8 @@ while true,
             %    fprintf('Go in path \n');
             %    fsm = 'path';
             if cnt < length(true_index_via) && any(map(sub2ind(size(map), path((true_index_via(cnt):true_index_via(cnt+1)),2), path((true_index_via(cnt):true_index_via(cnt+1)),1)))) 
-            cnt_path = 0;
-            fsm = 'path';
+                cnt_path = 0;
+                fsm = 'path';
             else
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
                 cnt_drive = 0;

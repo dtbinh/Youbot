@@ -5,7 +5,7 @@ function [errRot, rotVel] = youbot_rotate(youbotPos1, youbotPos2, youbotEuler3, 
 %     kp_r = 0.6*ku_r;
 %     ki_r = 2*kp_r/Tu_r;
 %     kd_r = kp_r*Tu_r/8;
-    kp_r = 0.6;
+    kp_r = 0.4;
     ki_r = 0;
     kd_r = 0;
     TrAbsToRobot = [1 0 youbotPos1; 0 1 youbotPos2; 0 0 1];
@@ -18,4 +18,7 @@ function [errRot, rotVel] = youbot_rotate(youbotPos1, youbotPos2, youbotEuler3, 
         errRot = errRot-pi;
     end
     rotVel = (kp_r*errRot + ki_r*errRot*timestep + (kd_r*(errRot -prevErrRot)/timestep));
+    if abs(rotVel) > pi/4
+        rotVel = rotVel/2;
+    end
 end
