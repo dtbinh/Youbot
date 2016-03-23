@@ -196,13 +196,13 @@ while true,
     
     drawnow;
     
+    
     % If there is an obstacle on the path
     if (isempty(path) )
         forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
         leftRightVel = 0;
         rotVel = 0;
         h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-        cnt_path = 0;
         fsm = 'path';
     end
     
@@ -224,10 +224,12 @@ while true,
             goal_ind = findGoal(map_seen, prev_goal, cell);
             [y, x] = ind2sub(size(map_seen), goal_ind);
             goal = [x y]
-            prev_goal = goal;
+            prev_goal=goal;
             nb_undiscovered_el = sum(map_seen(:)) 
+            sum(map_seen(:) 
             if(sum(map_seen(:)) < 7)
                 map_seen(:) = 0;
+                cnt_finished = 0;
                 fsm = 'finished';
             else
                 fprintf('Computing a new path \n');
@@ -243,6 +245,7 @@ while true,
                 % To take every x meters a point
                 %path = [start;path;goal]; % DT need
                 path = [start;path]; % Dstar need
+            
                 if size(path, 1)>2
                     angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
                     ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
@@ -268,13 +271,14 @@ while true,
                     true_index_via = [2];
                 end
                 q = double((via*cell).');
-                q_ref = homtrans(inv(RTr),q);
+                q_ref = homtrans(inv(RTr),q)
                 %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
                 cnt = 1;
                 if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
                     q_ref = q_ref(:,2:end);
                     via = via(2:end,:);
                     true_index_via = true_index_via(2:end);
+                    %cnt = 2;
                 end
                 fprintf('Computing a new path finished \n');
                 fprintf('Rotate \n');
@@ -320,10 +324,10 @@ while true,
             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
                 forwBackVel = 0;
                 rotVel = 0; % We do not need to rotate just to rear
-                if abs(curr_dist_target) > 0.25
-                    fsm = 'rotate';
-                    fprintf('Rotate beacause via passed \n');
-                end
+                fsm = 'rotate';
+                % If we passed the current point but we closer to next via
+                % points like that => go to the next one
+                %if cnt < size(via, 1) && sqrt((youbotPos(1)-q_ref(1,cnt+1))^2 + (youbotPos(2)-q_ref(2,cnt+1))^2) < sqrt( (q_ref(1,cnt+1)-q_ref(1,cnt))^2 + (q_ref(2,cnt+1)-q_ref(2,cnt))^2)
             end
             prev_dist_target = curr_dist_target;
             cnt_drive = 0;
