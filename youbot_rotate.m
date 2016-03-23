@@ -1,10 +1,10 @@
 function [errRot, rotVel] = youbot_rotate(youbotPos1, youbotPos2, youbotEuler3, q_ref_x, q_ref_y, prevErrRot)
     timestep = .05;
-    ku_r = 5;
-    Tu_r = 1.8;
-    %kp_r = 0.6*ku_r;
-    %ki_r = 2*kp_r/Tu_r;
-    %kd_r = kp_r*Tu_r/8;
+%     ku_r = 7; %5;
+%     Tu_r = 3.2; %1.8;
+%     kp_r = 0.6*ku_r;
+%     ki_r = 2*kp_r/Tu_r;
+%     kd_r = kp_r*Tu_r/8;
     kp_r = 0.6;
     ki_r = 0;
     kd_r = 0;

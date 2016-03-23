@@ -1,4 +1,4 @@
-function [q, q_ref] = our_youbot3()
+function [q, q_ref, map_seen] = our_youbot3()
 close all;
 disp('Program started');
 %vrep = remApi('remoteApi', 'extApi.h');
@@ -85,12 +85,15 @@ fsm = 'path';
  
 RTr = [-1 0 7.5; 0 -1 7.5; 0 0 1];
 StructEl = ones(9,9);
+StructSeen = ones(4,4);
 side_map = 15;
 cell = 0.125;
 map = zeros(side_map/cell, side_map/cell);
-map_seen = ones(side_map/cell, side_map/cell);
+map_seen = true(side_map/cell, side_map/cell);
+map_seen_2 = true(side_map/cell, side_map/cell);
+
 path = [];
-step_path = ceil(1/cell);
+step_path = ceil(1.25/cell);
 cnt_rotate = 0;
 cnt_drive = 0;
 cnt_path = 0;
@@ -162,6 +165,9 @@ while true,
     map_seen(sub2ind(size(map_seen), youbot_abs(2), youbot_abs(1))) = 0;
     map_seen(index_dilate) = 0;
     
+    map_seen = imerode(map_seen,StructSeen);
+    map_seen = idilate(map_seen,StructSeen);
+    
     [row_map_seen, col_map_seen] = find(map_seen(:,:) == 1);
     [row, col] = find(map(:,:) == 1);
     subplot(211)
@@ -200,7 +206,7 @@ while true,
     end
     
     if strcmp(fsm, 'path'),
-        if cnt_path < 50
+        if cnt_path < 20
             forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
             leftRightVel = 0;
             rotVel = 0;
@@ -209,26 +215,31 @@ while true,
         else
             start = homtrans(RTr, [youbotPos(1);youbotPos(2)]);
             start =ceil(start/cell).';
-
+            path=[];
             %goal = [116,84];
             %goal = ([20,10])
             %goal = [10,70];
             goal_ind = findGoal(map_seen);
             [y, x] = ind2sub(size(map_seen), goal_ind);
             goal = [x y]
-            fprintf('Computing a new path \n');
-            % Use of DT algorithm to move
-            %dx = DXform(map);
-            %dx.plan(goal)
-            %path = dx.path(start);
+            if(sum(map_seen(:)) < 7)
+                map_seen(:) = 0;
+                fsm = 'finished';
+            else
+                fprintf('Computing a new path \n');
+                % Use of DT algorithm to move
+                %dx = DXform(map);
+                %dx.plan(goal)
+                %path = dx.path(start);
 
-            % Use Dstar
-            DS = Dstar(map, 'quiet');
-            DS.plan(goal);
-            path = DS.path(start);
-            % To take every x meters a point
-            %path = [start;path;goal]; % DT need
-            path = [start;path]; % Dstar need
+                % Use Dstar
+                DS = Dstar(map, 'quiet');
+                DS.plan(goal);
+                path = DS.path(start);
+                % To take every x meters a point
+                %path = [start;path;goal]; % DT need
+                path = [start;path]; % Dstar need
+            end
             if size(path, 1)>2
                 angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
                 ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
@@ -249,7 +260,7 @@ while true,
                     via = path(true_index_via(:),:);
                     true_index_via = [1, true_index_via]; % Trick to know the path between previous via and next one
                 end
-            else
+            elseif size(path, 1)==2
                 via = path(end,:);
                 true_index_via = [2];
             end
@@ -276,14 +287,17 @@ while true,
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             prevErrRot = 0;
             
-            if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
-                cnt_path = 0;
-                fprintf('Go in path \n');
-                fsm = 'path';
+            %if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
+            %
+            %    cnt_path = 0;
+            %    fprintf('Go in path \n');
+            %    fsm = 'path';
+            if cnt < length(true_index_via) && any(map(sub2ind(size(map), path((true_index_via(cnt):true_index_via(cnt+1)),2), path((true_index_via(cnt):true_index_via(cnt+1)),1)))) 
+            cnt_path = 0;
+            fsm = 'path';
             else
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
                 cnt_drive = 0;
-                drive_sign = -1;
                 fsm = 'drive';
                 fprintf('Drive \n');
             end
@@ -293,44 +307,19 @@ while true,
         
     elseif strcmp(fsm, 'drive'),
         
-        %[errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        %if (abs(errRot) < 0.01) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
-        %    rotVel = 0;
-        %    h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-        %    prevErrRot = 0;
-        %    
-        %    if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
-        %        cnt_path = 0;
-        %        fsm = 'path';
-        %    else
-        %        prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
-        %        cnt_drive = 0;
-        %        drive_sign = -1;
-        %        fsm = 'drive';
-        %        fprintf('Drive \n');
-        %    end
-        %end
-        %prevOri = youbotEuler(3);
-        %prevErrRot = errRot;
-        %[res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1,...
-        %    vrep.simx_opmode_buffer); %-1 is to retrieve the absolute position of the object
-        %vrchk(vrep, res, true);
-        
         cnt_drive = cnt_drive + 1;
-        rotVel = 0;
-        [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), drive_sign, prevErrDr);
+        [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
+        prevErrRot = errRot;
+        [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), prevErrDr);
         if cnt_drive == 5
-            curr_dist_target
-            prev_dist_target
+            %curr_dist_target
+            %prev_dist_target
             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
-                %fprintf('I ichange of sign ! \n');
-                %drive_sign = -drive_sign;
                 forwBackVel = 0;
                 rotVel = 0; % We do not need to rotate just to rear
                 if abs(curr_dist_target) > 0.25
                     fsm = 'rotate';
                     fprintf('Rotate beacause via passed \n');
-                    lol = curr_dist_target
                 end
             end
             prev_dist_target = curr_dist_target;
@@ -352,18 +341,20 @@ while true,
                 end
                 prev_dist_target
                 fprintf('Next point \n');
-                fsm = 'rotate';
-                fprintf('Rotate \n');   
+                if abs(errRot) > 0.025
+                    fsm = 'rotate';
+                    fprintf('Rotate \n');   
+                end
             else
                 cnt_finished_path = 0;
                 fsm = 'finished_curr_path';
             end
-%         elseif(abs(errRot) > 0.1745 && abs(curr_dist_target) > 0.5) % 10°
-%             forwBackVel = 0;
-%             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-%             fsm = 'rotate';
-%             curr_dist_target
-%             fprintf('Rotate \n');
+        elseif abs(errRot) > 0.1745 %&& abs(curr_dist_target) > 0.5 % 10°
+             forwBackVel = 0;
+             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+             fsm = 'rotate';
+             curr_dist_target
+             fprintf('Rotate \n');
         end
         
         if cnt < length(true_index_via) && any(map(sub2ind(size(map), path((true_index_via(cnt):true_index_via(cnt+1)),2), path((true_index_via(cnt):true_index_via(cnt+1)),1)))) 
@@ -377,7 +368,7 @@ while true,
         cnt_finished_path = cnt_finished_path + 1;
         if cnt_finished_path == 20
             fprintf('Finished the current path \n');
-            if any(map_seen)
+            if any(map_seen(:))
                 cnt_path = 0;
                 fsm = 'path';
             else
