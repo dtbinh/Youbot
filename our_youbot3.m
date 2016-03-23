@@ -271,13 +271,14 @@ while true,
         forwBackVel = 0;
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
         errRot
-        if (abs(errRot) < 0.01) && (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
+        if (abs(errRot) < 0.025) && (abs(angdiff(prevOri, youbotEuler(3))) < 0.01),
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             prevErrRot = 0;
             
             if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
                 cnt_path = 0;
+                fprintf('Go in path \n');
                 fsm = 'path';
             else
                 prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
