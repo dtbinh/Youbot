@@ -91,6 +91,7 @@ cell = 0.125;
 prev_goal = [1,120];
 map = zeros(side_map/cell, side_map/cell);
 map_seen = true(side_map/cell, side_map/cell);
+map_plot = false(side_map/cell, side_map/cell);
 
 path = [];
 step_path = ceil(1.25/cell);
@@ -103,6 +104,7 @@ while true,
         error('Lost connection to remote API.');
     end
     
+    % We get back all the positions
     [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1,...
         vrep.simx_opmode_buffer); %-1 is to retrieve the absolute position of the object
     vrchk(vrep, res, true);
@@ -112,46 +114,42 @@ while true,
     
     % Read data from the Hokuyo sensor:
     [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
+    
     %We receive the seen points and the obstacles as coordinates in comparison to the youbot
     youbot2absTrans = transl(youbotPos) * trotx(youbotEuler(1)) * troty(youbotEuler(2)) * trotz(youbotEuler(3));
     youbot_abs = ceil( (homtrans(RTr,[youbotPos(1); youbotPos(2)]))/cell);
     pts_abs = homtrans(youbot2absTrans, pts);
     pts_final = homtrans(RTr,pts_abs(1:2,:));
     pts_final = ceil(pts_final/cell);
-    for i = 1:1:size(pts_final, 2)
-        if pts_final(1, i) > floor(15/cell-2)
-            pts_final(1, i) = floor(15/cell-2);
-        end
-        if pts_final(2, i) > floor(15/cell-2)
-            pts_final(2, i) = floor(15/cell-2);
-        end
-        if pts_final(1,i) < 3
-            pts_final(1,i) = 3;
-        end
-        if pts_final(2,i)<3
-            pts_final(2,i)=3;
-        end
-    end
     
+    % To make sure that the hukoyo data belongs to the matrix
+    min_tmp2 = min(pts_final(2,:),side_map/cell);
+    pts_final(2,:) = max(min_tmp2, 1);
+    min_tmp1 = min(pts_final(1,:),side_map/cell);
+    pts_final(1,:) = max(min_tmp1, 1);
+    
+    % We update the map
+    % Map 2 is a trick to dilate only ones the wall
     map2 = zeros(size(map));
     map2(sub2ind(size(map), pts_final(2,contacts), pts_final(1,contacts))) = 1; % % http://nl.mathworks.com/company/newsletters/articles/matrix-indexing-in-matlab.html
     map2 = idilate(map2, StructEl);
     index_dilate = ((map2-map) == 1);
     map(index_dilate) = 1;
-
-    %hokuyo1_abs = homtrans(youbot2absTrans,[h.hokuyo1Pos(1);h.hokuyo1Pos(2)]);
+    map_plot(sub2ind(size(map), pts_final(2,contacts), pts_final(1,contacts))) = true;
+    
+    % We transfo the hukoyo data in the abs reference
     hokuyo1_abs = homtrans(youbot2absTrans,h.hokuyo1Pos.');
     hokuyo2_abs = homtrans(youbot2absTrans,h.hokuyo2Pos.');
-    %hokuyo2_abs = homtrans(youbot2absTrans,[h.hokuyo2Pos(1);h.hokuyo2Pos(2)]);
-    
     hokuyo1_map = ceil(homtrans(RTr, [hokuyo1_abs(1);hokuyo1_abs(2)])/cell);
     hokuyo2_map = ceil(homtrans(RTr, [hokuyo2_abs(1);hokuyo2_abs(2)])/cell);
     
+    % We compute the box around the robot
     x_left_robot = max(1, (youbot_abs(1) - (5/cell)) );
     x_right_robot = min(length(map), (youbot_abs(1) + (5/cell)) );
     y_up_robot = min(length(map), (youbot_abs(2) + (5/cell)) );
     y_down_robot = max(1,(youbot_abs(2) - (5/cell)) );
     
+    % We compute where we see the points in the map 
     [X,Y] = meshgrid(x_left_robot:1:x_right_robot, y_down_robot:1:y_up_robot); 
     X = reshape(X, 1, []);
     Y = reshape(Y, 1, []);
@@ -168,83 +166,56 @@ while true,
     map_seen = imerode(map_seen,StructSeen);
     map_seen = idilate(map_seen,StructSeen);
     
+    % We plot the map
     [row_map_seen, col_map_seen] = find(map_seen(:,:) == 1);
-    [row, col] = find(map(:,:) == 1);
+    [row, col] = find(map_plot(:,:) == 1);
     subplot(211)
-    plot(col,row,'.r');
+    plot(col,row,'.k');
     if ~(isempty(path))
         hold on;
         plot(path(:,1),path(:,2),'.g');
-%         pre_cnt = cnt
-%         pre_len = length(via)
-%         pre_via = via
-        plot(via(cnt,1),via(cnt,2), '.k');
-        %cnt
-        %via(cnt,:)
-        %len = length(via)
+        plot(via(cnt,1),via(cnt,2), '.b');
     end
     hold on;
     plot(youbot_abs(1),youbot_abs(2),'.m');
     hold off;
-    xlim([1,15/cell]);
-    ylim([1,15/cell]);
-    
+    xlim([1,side_map/cell]);
+    ylim([1,side_map/cell]);
     subplot(212)
     plot(col_map_seen,row_map_seen,'.r');
-    xlim([1,15/cell]);
-    ylim([1,15/cell]);
-    
+    xlim([1,side_map/cell]);
+    ylim([1,side_map/cell]);
     drawnow;
     
-    
-    % If there is an obstacle on the path
-%     if (isempty(path) )
-%         forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
-%         leftRightVel = 0;
-%         rotVel = 0;
-%         h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-%         fsm = 'path';
-%     end
-    
     if strcmp(fsm, 'path'),
-        if cnt_path < 20
+        if cnt_path < 5 % During 5 times we put all speed to 0 
             forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
             leftRightVel = 0;
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             cnt_path = cnt_path+1;
-        else
-            start = homtrans(RTr, [youbotPos(1);youbotPos(2)]);
-            start =ceil(start/cell).';
-            path=[];
-            %goal = [116,84];
-            %goal = ([20,10])
-            %goal = [10,70];
-            %goal_ind = findGoal(map_seen);
-            goal = findGoal(map_seen, prev_goal, cell);
-            %goal = ind2sub(size(map_seen), goal_ind);
-            %goal = [x y];
-            prev_goal=goal;
-            if(sum(map_seen(:)) < 10)
-                map_seen(:,:) = 0;
-                cnt_finished = 0;
-                fsm = 'finished';
-            else
+        else %  We compute a new path
+                start = homtrans(RTr, [youbotPos(1);youbotPos(2)]);
+                start =ceil(start/cell).';
+                path=[];
+                goal = findGoal(map_seen, prev_goal, cell); 
+                prev_goal=goal;
                 fprintf('Computing a new path \n');
                 %Use of DT algorithm to move
                 dx = DXform(map);
                 dx.plan(goal)
                 path = dx.path(start);
-
+                
                 % Use Dstar
-%                 DS = Dstar(map, 'quiet');
-%                 DS.plan(goal);
-%                 path = DS.path(start);
+                % DS = Dstar(map, 'quiet');
+                % DS.plan(goal);
+                % path = DS.path(start);
+            
                 % To take every x meters a point
                 path = [start;path;goal]; % DT need
-%                 path = [start;path]; % Dstar need
+                %path = [start;path]; % Dstar need
             
-                if size(path, 1)>2
+                if size(path, 1)>2 % If there is at least 2 elements in the path, we only keep the via points and points ever
                     angles = (path(2:end,2)-path(1:end-1,2))./(path(2:end,1)-path(1:end-1,1));
                     ind_angles = [false(1); angles(2:end) ~= angles(1:end-1)];
                     ind_angles = find(ind_angles == 1);
@@ -270,18 +241,15 @@ while true,
                 end
                 q = double((via*cell).');
                 q_ref = homtrans(inv(RTr),q);
-                %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
                 cnt = 1;
                 if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
                     q_ref = q_ref(:,2:end);
                     via = via(2:end,:);
                     true_index_via = true_index_via(2:end);
-                    %cnt = 2;
                 end
                 fprintf('Computing a new path finished \n');
                 fprintf('Rotate \n');
                 fsm = 'rotate';
-            end
         end
     elseif strcmp(fsm, 'rotate'),
         forwBackVel = 0;
@@ -290,12 +258,6 @@ while true,
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             prevErrRot = 0;
-            
-            %if any(map(sub2ind(size(map), path(:,2), path(:,1)))) 
-            %
-            %    cnt_path = 0;
-            %    fprintf('Go in path \n');
-            %    fsm = 'path';
             if cnt < length(true_index_via) && any(map(sub2ind(size(map), path((true_index_via(cnt):true_index_via(cnt+1)),2), path((true_index_via(cnt):true_index_via(cnt+1)),1)))) 
                 cnt_path = 0;
                 fsm = 'path';
@@ -316,15 +278,10 @@ while true,
         prevErrRot = errRot;
         [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), prevErrDr);
         if cnt_drive == 5
-            %curr_dist_target
-            %prev_dist_target
             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
-                
                 forwBackVel = 0;
                 rotVel = 0; % We do not need to rotate just to rear
-                %fsm = 'rotate';
-                % If we passed the current point but we closer to next via
-                % points like that => go to the next one
+                % If we passed the current point but we closer to next via points like that => go to the next one
                 if cnt < size(via, 1) && sqrt((youbotPos(1)-q_ref(1,cnt+1))^2 + (youbotPos(2)-q_ref(2,cnt+1))^2) < sqrt( (q_ref(1,cnt+1)-q_ref(1,cnt))^2 + (q_ref(2,cnt+1)-q_ref(2,cnt))^2)
                     curr_dist_target = sqrt((youbotPos(1)-q_ref(1,cnt+1))^2 + (youbotPos(2)-q_ref(2,cnt+1))^2);
                     cnt = cnt+1;
@@ -337,7 +294,6 @@ while true,
         end
         prevErrDr = errDr;
         
-        %if ((abs(curr_dist_target) < 0.1) && cnt < size(via, 1)) || ((abs(curr_dist_target) < 0.01) && cnt == size(via, 1)) %nextPDrive(2)
         if ( abs(curr_dist_target) < 0.1 )
             forwBackVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
@@ -349,7 +305,6 @@ while true,
                     cnt = cnt +1;
                     prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
                 end
-                %prev_dist_target;
                 fprintf('Next point \n');
                 if abs(errRot) > 0.025
                     fsm = 'rotate';
@@ -363,7 +318,6 @@ while true,
              forwBackVel = 0;
              h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
              fsm = 'rotate';
-             %curr_dist_target;
              fprintf('Rotate \n');
         end
         
@@ -378,10 +332,13 @@ while true,
         cnt_finished_path = cnt_finished_path + 1;
         if cnt_finished_path == 20
             fprintf('Finished the current path \n');
-            if any(map_seen(:))
+            
+            
+            if(sum(map_seen(:)) > 10) % If they remain less than 10 elements to discover, we have all the map and can stop the navigation
                 cnt_path = 0;
                 fsm = 'path';
             else
+                map_seen(:,:) = 0;
                 cnt_finished = 0;
                 fsm = 'finished';
             end
@@ -389,7 +346,7 @@ while true,
     elseif strcmp(fsm, 'finished'),
         h = youbot_drive(vrep, h, 0, 0, 0);
         cnt_finished = cnt_finished + 1;
-        if cnt_finished == 20
+        if cnt_finished == 10
             pause(3);
             break;
         end
