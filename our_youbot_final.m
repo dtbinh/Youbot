@@ -122,24 +122,9 @@ while true,
     pts_final = ceil(pts_final/cell);
     
     % To make sure that the hukoyo data belongs to the matrix
-    %min_tmp = min(pts_final,floor(side_map/cell-2));
-    %pts_final = max(min_tmp, 3);
-    
-    for i = 1:1:size(pts_final, 2)
-        if pts_final(1, i) > floor(15/cell-2)
-            pts_final(1, i) = floor(15/cell-2);
-        end
-        if pts_final(2, i) > floor(15/cell-2)
-            pts_final(2, i) = floor(15/cell-2);
-        end
-        if pts_final(1,i) < 3
-            pts_final(1,i) = 3;
-        end
-        if pts_final(2,i)<3
-            pts_final(2,i)=3;
-        end
-    end
-    
+    min_tmp = min(pts_final,floor(side_map/cell));
+    pts_final = max(min_tmp, 1);
+      
     % We update the map
     % Map 2 is a trick to dilate only ones the wall
     map2 = zeros(size(map));
@@ -221,20 +206,7 @@ while true,
                 cnt_finished = 0;
                 fsm = 'finished';
             else
-                fprintf('Computing a new path \n');
-                %Use of DT algorithm to move
-                %dx = DXform(map);
-                %dx.plan(goal)
-                %path = dx.path(start);
-
-                % Use Dstar
-%                 DS = Dstar(map, 'quiet');
-%                 DS.plan(goal);
-%                 path = DS.path(start);
-                % To take every x meters a point
-                %path = [start;path;goal]; % DT need
-%                 path = [start;path]; % Dstar need
-                
+                fprintf('Computing a new path \n');             
                 % Use of our path planner
                 path = ourPathPlanner(map, goal, start);
             
@@ -264,13 +236,11 @@ while true,
                 end
                 q = double((via*cell).');
                 q_ref = homtrans(inv(RTr),q);
-                %sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2)
                 cnt = 1;
                 if size(q_ref,2) > 1 && sqrt( (youbotPos(1)-q_ref(1,1))^2 + (youbotPos(2)-q_ref(2,1))^2) < 0.2
                     q_ref = q_ref(:,2:end);
                     via = via(2:end,:);
                     true_index_via = true_index_via(2:end);
-                    %cnt = 2;
                 end
                 fprintf('Computing a new path finished \n');
                 fprintf('Rotate \n');
@@ -283,7 +253,7 @@ while true,
             cnt = cnt +1;
         end
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-        if (abs(errRot) < 0.1) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.04),
+        if (abs(errRot) < 0.15) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.04),
             rotVel = 0;
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
            
@@ -291,33 +261,28 @@ while true,
                 cnt_path = 0;
                 fsm = 'path';
             else
-                prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
-                cnt_drive = 0;
                 prevErrRot = 0;
                 fsm = 'drive';
                 fprintf('Drive \n');
             end
         end
-        %prevOri = youbotEuler(3);
         prevErrRot = errRot;
         
     elseif strcmp(fsm, 'drive'),
-        %cnt_drive = cnt_drive + 1;
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
         prevErrRot = errRot;
         [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), prevErrDr);
         prevErrDr = errDr;
         
         % If close enough => go to next point 
-        if ((abs(curr_dist_target) < 2*cell) && cnt < size(via, 1)) || ((abs(curr_dist_target) < 0.1) && cnt == size(via, 1)) 
+        if ((abs(curr_dist_target) < 2*cell) && cnt < size(via, 1)) || ((abs(curr_dist_target) < cell) && cnt == size(via, 1)) 
             forwBackVel = 0;
             if cnt < size(via, 1) % if no last point go to next one
                 cnt = cnt +1;
                 prevErrDr = 0;
-                prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );% We compute the distance with the next via points
-                if prev_dist_target < 0.2 && (cnt+1) < size(via, 1) % If the next point is too closed we go to 2 points after
+                % If the next point is too closed we go to 2 points after
+                if sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 ) < 0.2 && (cnt+1) < size(via, 1) 
                     cnt = cnt +1;
-                    prev_dist_target = sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 );
                     fprintf('Go to next next point because next point to closed  \n');
                 end
                 fprintf('Next point \n');
@@ -339,28 +304,6 @@ while true,
              %curr_dist_target;
              fprintf('Rotate \n');
         
-%         elseif cnt_drive == 5
-%             %curr_dist_target
-%             %prev_dist_target
-%             if abs(curr_dist_target) > (abs(prev_dist_target)) + 0.02
-%                 
-%                 forwBackVel = 0;
-%                 rotVel = 0; % We do not need to rotate just to rear
-%                 %fsm = 'rotate';
-%                 % If we passed the current point but we closer to next via
-%                 % points like that => go to the next one
-%                 
-%                 % If we passed the current point but we closer to next via points like that => go to the next one
-%                 if cnt < size(via, 1)% && sqrt((youbotPos(1)-q_ref(1,cnt+1))^2 + (youbotPos(2)-q_ref(2,cnt+1))^2) < sqrt( (q_ref(1,cnt+1)-q_ref(1,cnt))^2 + (q_ref(2,cnt+1)-q_ref(2,cnt))^2)
-%                     curr_dist_target = sqrt((youbotPos(1)-q_ref(1,cnt+1))^2 + (youbotPos(2)-q_ref(2,cnt+1))^2);
-%                     cnt = cnt+1;
-%                 else
-%                     fprintf('Rotate because must go to the last point \n');
-%                     fsm = 'rotate';
-%                 end
-%             end
-%             prev_dist_target = curr_dist_target;
-%             cnt_drive = 0;
         end
         
         % If obstacle between current via and next one => compute a new
