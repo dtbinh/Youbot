@@ -7,5 +7,5 @@ function [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos1, yo
     kd_d = kp_d*Tu_d/8;    
     curr_dist_target = sqrt( (youbotPos1-q_ref_x)^2 + (youbotPos2-q_ref_y)^2 );
     errDr = -curr_dist_target;
-    forwBackVel = 0.5*(kp_d*errDr + ki_d*errDr*timestep + (kd_d*(errDr -prevErrDr)/timestep));
+    forwBackVel = (kp_d*errDr + ki_d*errDr*timestep + (kd_d*(errDr -prevErrDr)/timestep));
 end
