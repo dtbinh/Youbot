@@ -23,27 +23,53 @@ for k = 1:length(lines)
       max_len = len;
       xy_long = xy;
    end
+
+   if(xy(2,1) < xy(1,1))
+       tmp = xy(1,1);
+       xy(1,1) = xy(2,1);
+       xy(2,1) = tmp;
+   end
+   if(xy(2,2) < xy(1,2))
+       tmp = xy(1,2);
+       xy(1,2) = xy(2,2);
+       xy(2,2) = tmp;
+   end
+   
    map_plot_hough(xy(1,2):xy(2,2),xy(1,1):xy(2,1)) = false;
+   map_plot_hough(max(xy(1,2)-1,1):max(xy(2,2)-1,1),max(xy(1,1)-1,1):max(xy(2,1)-1,1)) = false;
+   map_plot_hough(min(xy(1,2)+1,length(map_plot)):min(xy(2,2)+1,length(map_plot)),min(xy(1,1)+1,length(map_plot)):min(xy(2,1)+1,length(map_plot))) = false;
 end
+       
+  
+  
 title('Hough result');
+
+HoughMap = map_plot - flip(map_plot_hough);
+SE = ones(9,9);
+HoughMap = imdilate(HoughMap,SE);
+figure;
+imshow(HoughMap)
+title('Tada ');
+save('HoughMap.mat','HoughMap');
 
 figure;
 imshow(map_plot_hough)
 title('After removing lines of Hough ');
+
 SE = ones(2,2); % If no erode on line 4 and 5
 map_plot_hough = imerode(map_plot_hough, SE);
 figure;
 imshow(map_plot_hough)
 title('Erosion of previous Figure');
-SE = strel('disk',2);
-%SE = ones(2,2);
+% SE = strel('disk',2);
+SE = ones(2,2);
 map_plot_hough = imdilate(map_plot_hough, SE);
 figure;
 imshow(map_plot_hough)
 title('Dilation of the previous Figure');
 map_plot_hough_bis =imresize(map_plot_hough,4);
 [centers, radii, ~] = imfindcircles(map_plot_hough_bis,[13 30], 'ObjectPolarity','bright', ...
-    'Sensitivity',0.976, 'EdgeThreshold',0.93);
+    'Sensitivity',0.9795, 'EdgeThreshold',0.93);
 %d = imdistline;
 % We only take the 7 first strongest circles
 %centers = centers(1:7,:);
