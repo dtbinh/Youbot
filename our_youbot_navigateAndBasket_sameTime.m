@@ -134,7 +134,6 @@ while true,
         vrep.simx_opmode_buffer);
     vrchk(vrep, res, true);
     
-    
     youbot_abs = ceil( (homtrans(RTr,[youbotPos(1); youbotPos(2)]))/cell_map);
     
     % Read data from the Hokuyo sensor:
@@ -338,7 +337,7 @@ while true,
                 fsm = 'rotate';
             end
         end
-    elseif strcmp(fsm, 'rotate'),
+    elseif strcmp(fsm, 'rotate'), % Can delete this if we do not want that the youbot align the first time
         forwBackVel = 0;
         if sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 ) < (2*cell_map) && cnt < size(via, 1)
             cnt = cnt +1;
@@ -365,12 +364,13 @@ while true,
     elseif strcmp(fsm, 'drive'),
         [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
         prevErrRot = errRot;
-        [curr_dist_target, errDr, forwBackVel] = youbot_velocity(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), prevErrDr);
+        [curr_dist_target, errDr, forwBackVel, leftRightVel] = youbot_2velocities(youbotPos(1), youbotPos(2), q_ref(1,cnt), q_ref(2,cnt), youbotEuler(3), prevErrDr);
         prevErrDr = errDr;
         %cnt_drive = cnt_drive + 1;
         % If close enough => go to next point 
         if (abs(curr_dist_target) < 2.2*sqrt(2)*cell_map) %&& cnt < size(via, 1)) || ((abs(curr_dist_target) < cell_map) && cnt == size(via, 1)) 
             forwBackVel = 0;
+            leftRightVel = 0;
             if cnt < size(via, 1) % if no last point go to next one
                 cnt = cnt +1;
                 prevErrDr = 0;
@@ -380,24 +380,25 @@ while true,
                     fprintf('Go to next next point because next point to closed  \n');
                 end
                 fprintf('Next point \n');
-                [errRot, ~] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
-                if abs(errRot) > 2*0.1745 %Too big angular deviation with next point => Rotate to align with this next point
-                    fsm = 'rotate';
-                    fprintf('Rotate because must align with next point \n');
-                    fprintf('Rotate \n');   
-                end
+                %[errRot, ~] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), q_ref(1,cnt), q_ref(2,cnt), prevErrRot);
+                %if abs(errRot) > 2*0.1745 %Too big angular deviation with next point => Rotate to align with this next point
+                %    fsm = 'rotate';
+                %    fprintf('Rotate because must align with next point \n');
+                %    fprintf('Rotate \n');   
+                %end
             else % if last one => finished the current path
                 cnt_finished_path = 0;
                 forwBackVel = 0;
+                leftRightVel = 0;
                 fsm = 'finished_curr_path';
             end
-        elseif abs(errRot) > 2*(0.1745) % If too big angular deviation during motion
-             forwBackVel = 0;
-             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
-             fprintf('Rotate because too big deviation \n');
-             fsm = 'rotate';
-             %curr_dist_target;
-             fprintf('Rotate \n');
+%         elseif abs(errRot) > 2*(0.1745) % If too big angular deviation during motion
+%              forwBackVel = 0;
+%              h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+%              fprintf('Rotate because too big deviation \n');
+%              fsm = 'rotate';
+%              %curr_dist_target;
+%              fprintf('Rotate \n');
 
         end
 
@@ -410,6 +411,7 @@ while true,
             %map(youbot_abs(2),youbot_abs(1)) = 0; % HEREEEEEE
             fsm = 'path';
             forwBackVel = 0;
+            leftRightVel = 0;
             prevErrRot = 0;
         end
 
@@ -436,6 +438,7 @@ while true,
 
     elseif strcmp(fsm, 'finished_curr_path'),
         forwBackVel = 10;
+        leftRightVel = 0;
         rotVel = 0;
         cnt_finished_path = cnt_finished_path + 1;
         if cnt_finished_path >= 2 && navigate 
@@ -478,6 +481,7 @@ while true,
 
     elseif strcmp(fsm, 'finished'),
         forwBackVel = 0;
+        leftRightVel = 0;
         rotVel = 0;
         map_seen(:) = 0;
         if cnt_finished == 3
