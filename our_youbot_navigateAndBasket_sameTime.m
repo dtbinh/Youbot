@@ -1,4 +1,11 @@
-% Not working
+% The logic of the code is the following :
+% The robot navigates (navigate mode). 
+% When it has finished its current path, it looks if
+% there is a new basket or not. If so it, the mode findBasket is on and the
+% robot goes to see it (or them if there is 2). 
+% It takes a picture and then goes back in the navigate mode.
+% When it has finished to navigate, it stops
+%
 function our_youbot_navigateAndBasket_sameTime
 close all;
 disp('Program started');
@@ -105,12 +112,16 @@ cnt_basket = 0;
 cnt_picture = 0;
 cnt_drive = 0;
 
+% We create a structure : struct_baskets that contains the center and the
+% blob of the basket circles
 struct_baskets = struct('centers_xy',zeros(5,2),'pixelsBlob',[],'nbRepresentative',zeros(5,1), ...
     'Seen',false(5,1));
 struct_baskets.pixelsBlob = cell(1,5);
 
+% We create a structure : struct_tables that contains the center and the
+% blob of the tables circles
 struct_tables = struct('centers_xy',zeros(2,2),'pixelsBlob',[],'nbRepresentative',zeros(2,1), ...
-    'Seen',false(2,1));
+    'Seen',false(2,1), 'right', false(2,1));
 struct_tables.pixelsBlob = cell(1,2);
 nb_new_centers = 0;
 prev_centers = [];
@@ -221,8 +232,6 @@ while true,
             h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
             cnt_path = cnt_path+1;
         else %  We compute a new path
-            %start = homtrans(RTr, [youbotPos(1);youbotPos(2)]);
-            %start =ceil(start/cell_map).';
             start = youbot_abs;
             path=[];
             if(sum(map_seen(:)) < 10) && navigate && len_old_centers >= 7 % If map totally seen & in navigate mode and not seen the 5 baskets + the 2 tables in the map
@@ -231,7 +240,7 @@ while true,
                 fsm = 'finished';
             else
                 fprintf('Computing a new path \n'); 
-                if ~findBasket
+                if ~findBasket % if not in findBasket mode, look if not a new basket
                     fprintf('Look if there is a new basket \n');
                     [centers, CC, HoughMap] = fctHoughFindBaskets(map_plot);
                     % If there is a new blob found 
@@ -242,10 +251,22 @@ while true,
                         len_old_centers = size(centers,1);
                         d = sqrt((centers(:,1)-youbot_abs_start(1)).^2 + (centers(:,2)-youbot_abs_start(2)).^2);
                         [~,I] = sort(d);
-                        struct_tables.centers_xy(1,:) = centers(1,:);
+                        % The 2 closest to the starting position are the
+                        % tables
+                        struct_tables.centers_xy(1,:) = centers(I(1),:);
                         struct_tables.pixelsBlob{1,1} = CC.PixelIdxList{1,I(1)};
-                        struct_tables.centers_xy(2,:) = centers(2,:);
+                        struct_tables.centers_xy(2,:) = centers(I(2),:);
                         struct_tables.pixelsBlob{1,2} = CC.PixelIdxList{1,I(2)};
+                        % We look which table is the right one (with the
+                        % objects upwards)
+                        if struct_tables.centers_xy(1,1) < struct_tables.centers_xy(2,1) % if the x index of first table is smaller than second =>
+                            struct_tables.right(1) = false;
+                            struct_tables.right(2) = true;
+                        else
+                            struct_tables.right(2) = false;
+                            struct_tables.right(1) = true;
+                        end
+                        % Then it remains the baskets
                         centers_basket = centers(I(3:end),:);
                         idx = I(3:end);
                         for i = 1:size(centers_basket,1)
@@ -337,7 +358,7 @@ while true,
                 fsm = 'rotate';
             end
         end
-    elseif strcmp(fsm, 'rotate'), % Can delete this if we do not want that the youbot align the first time
+    elseif strcmp(fsm, 'rotate'), % Can delete this if we do not want that the youbot align the first time, just need to change fsm = 'drive' 3 lines before
         forwBackVel = 0;
         if sqrt( (youbotPos(1)-q_ref(1,cnt))^2 + (youbotPos(2)-q_ref(2,cnt))^2 ) < (2*cell_map) && cnt < size(via, 1)
             cnt = cnt +1;
@@ -441,17 +462,16 @@ while true,
         leftRightVel = 0;
         rotVel = 0;
         cnt_finished_path = cnt_finished_path + 1;
-        if cnt_finished_path >= 2 && navigate 
+        if cnt_finished_path >= 2 && navigate % if in navigate, remains in it
             forwBackVel = 0;
             fprintf('Finished the current path and continue to explore the map \n');
             fsm = 'path';
-        elseif cnt_finished_path >= 10 && findBasket
+        elseif cnt_finished_path >= 10 && findBasket % if in findBasket, we have to take a picture
             forwBackVel = 0;
-            %fprintf('Finished the current path and take a picture of the basket \n');
             [errRot, rotVel] = youbot_rotate(youbotPos(1), youbotPos(2), youbotEuler(3), goal_transfo(1), goal_transfo(2), prevErrRot);
-            %if (abs(errRot) < 0.15) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.04),
-            if (abs(errRot) < 0.05) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.04),
+            if (abs(errRot) < 0.15) %&& (abs(angdiff(prevOri, youbotEuler(3))) < 0.04),
                 rotVel = 0;
+                fprintf('Finished the current path and take a picture of the basket \n');
                 res = vrep.simxSetFloatSignal(id, 'rgbd_sensor_scan_angle', pi/3,...
                                    vrep.simx_opmode_oneshot_wait); %pi/2 before
                 vrchk(vrep, res);
@@ -468,10 +488,10 @@ while true,
                 imwrite(image,image_name);
                 cnt_basket = cnt_basket
                 size(centers_basket,1)
-                if cnt_basket == size(centers_basket,1)
+                if cnt_basket == size(centers_basket,1) % if the robot has gone to all the baskets it has discovered
                     findBasket = false;
                     navigate = true;
-                else
+                else % if not
                     cnt_basket = cnt_basket + 1;
                 end
                 fsm = 'path';
@@ -487,16 +507,7 @@ while true,
         if cnt_finished == 3
             fprintf('Finished to navigate \n');
             save('BuildMap.mat','map_plot', 'map');
-%             if size(centers,1) < 5 % If we have not yet seen the 5 baskets
-%                 findBasket = false;
-%                 navigate = true;
-%                 fsm = 'path'; 
-%             elseif  cnt_basket < size(centers,1) % else if not yet go to take picture of all basket already seen
-%                 cnt_basket = cnt_basket + 1;
-%                 fsm = 'path';
-%        else 
              break,
-%             end
         end  
         cnt_finished = cnt_finished + 1;
     else
