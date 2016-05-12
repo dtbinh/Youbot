@@ -51,6 +51,7 @@ startingJoints = [0,30.91*pi/180,52.42*pi/180,72.68*pi/180,0];
  
 % In this demo, we move the arm to a preset pose:
 pickupJoints = [90*pi/180, 19.6*pi/180, 113*pi/180, -41*pi/180, 0*pi/180];
+%pickupJoints = [90*pi/180, 75*pi/180,52.42*pi/180,72.68*pi/180,0];
  
 % Tilt of the Rectangle22 box
 r22tilt = -44.56/180*pi;
@@ -112,8 +113,13 @@ struct_object = struct('coord_xy',zeros(5,2), 'dest',zeros(5,2));
 %dest_cyl_precise_abs = [90, 108];
 %dest_cyl_not_precise_abs  = [94, 108];
 
-dest_cyl_precise_abs = [89, 112];
-dest_cyl_not_precise_abs  = [92, 115];
+% 5
+% dest_cyl_precise_abs = [88, 111];
+% dest_cyl_not_precise_abs  = [92, 115];
+
+% 1
+dest_cyl_precise_abs = [80, 103];
+dest_cyl_not_precise_abs  = [78, 101];
 
 dest_cyl_precise = homtrans(inv(RTr),((dest_cyl_precise_abs*cell_map).')); % Expressed with rather to ref of the room
 dest_cyl_not_precise = homtrans(inv(RTr),((dest_cyl_not_precise_abs*cell_map).')); % Expressed with rather to ref of the room
@@ -210,15 +216,15 @@ while true,
     [row_map_seen, col_map_seen] = find(map_seen == 1);
     [row, col] = find(map(:,:) == 1);
     subplot(121)
-    %plot(col,row,'.k');
+    plot(col,row,'.k');
     if ~(isempty(path))
-        %hold on;
+        hold on;
         plot(path(:,1),path(:,2),'.r');
         hold on;
         plot(via(cnt,1),via(cnt,2), '.g');
     end
-    plot(col,row,'.k');
-    %hold on;
+    %plot(col,row,'.k');
+    hold on;
     plot(youbot_abs(1),youbot_abs(2),'db');
     hold off;
     axis square
@@ -321,6 +327,7 @@ while true,
                     [path,mapPath_cost] = ourPathPlannerBest(map_modif, goal, start, map);
                     fprintf('Path computed \n');
                 elseif findObject
+                    cnt_object = 0;
                     fprintf('Begin to find the path to go to pick an object \n');
                     if ~pickedObject % if object not taken => must go on the table take it
                         goal = dest_cyl_not_precise_abs;
@@ -523,28 +530,36 @@ while true,
             prevErrRot = errRot;
         elseif cnt_finished_path >= 5 && findObject 
             forwBackVel = 0;
-            %fprintf('I am normally just in front of the yellow box \n');
+            leftRightVel = 0;
+            fprintf('I have finsihed the first path \n');
             if ~pickedObject  % We have to pick an object
                 [rotVel] = youbot_rotate_precise(youbotPos(1), youbotPos(2), youbotEuler(3), center_table_precise(1), center_table_precise(2));
-                %if rotVel < 0.005
+                %if abs(rotVel) < 0.005
+                    fprintf('Move precise \n');
                     [curr_dist_target, errDr, forwBackVel, leftRightVel] = youbot_2velocities(youbotPos(1), youbotPos(2), dest_cyl_precise(1), dest_cyl_precise(2), youbotEuler(3), prevErrDr);
                     [rotVel] = youbot_rotate_precise(youbotPos(1), youbotPos(2), youbotEuler(3), center_table_precise(1), center_table_precise(2));
                     curr_dist_target
                     prevErrDr = errDr;
-                    if (abs(curr_dist_target) < 0.05) && rotVel < 0.005
+                    leftRightVel = 0.5*leftRightVel;
+                    forwBackVel = 0.5*forwBackVel;
+                    if (abs(curr_dist_target) < 0.2) && rotVel < 0.02
+                    %if abs(2*leftRightVel) < 1.25*0.125
                         fprintf('I am normally just in front of the yellow box \n');
-                        curr_dist_target
+                        %curr_dist_target
                         forwBackVel = 0;
+                        leftRightVel = 0;
                         rotVel = 0;
-                        a = 5;
-                        vrep.simxSetObjectOrientation(id, h.rgbdCasing, h.ref,...
-                                     [0 0 pi/4], vrep.simx_opmode_oneshot);
-                        for i = 1:5,
-                         res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), pickupJoints(i),...
-                                                              vrep.simx_opmode_oneshot); % On mets les 5 joints dans la position souhaitée
-                         vrchk(vrep, res, true);
+                        cnt_object = cnt_object + 1;
+                        if cnt_object > 15
+                            vrep.simxSetObjectOrientation(id, h.rgbdCasing, h.ref,...
+                                         [0 0 pi/4], vrep.simx_opmode_oneshot);
+                            for i = 1:5,
+                             res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), pickupJoints(i),...
+                                                                  vrep.simx_opmode_oneshot); % On mets les 5 joints dans la position souhaitée
+                             vrchk(vrep, res, true);
+                            end
+                            fsm = 'snapshot';
                         end
-                        fsm = 'snapshot';
                     end
                 %end
             else
@@ -615,7 +630,6 @@ while true,
       hold off;
       %axis equal;
       %view([-169 -46]);
-
       % Save the pointcloud to pc.xyz.
       % (pc.xyz can be displayed with meshlab.sf.net).
       fileID = fopen('pc.xyz','w');
@@ -641,6 +655,7 @@ while true,
       subplot(224)
       imshow(image);
       drawnow;
+      a = 5;
       
       [res t] = vrep.simxGetObjectPosition(id, h.xyzSensor, h.armRef,...
                                              vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef 
@@ -734,6 +749,9 @@ while true,
     end
 
     % Update wheel velocities
+    forwBackVel
+    leftRightVel
+    rotVel
     h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
     
     % Make sure that we do not go faster that the simulator
