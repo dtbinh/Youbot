@@ -111,6 +111,7 @@ findBasket = false;
 
 %state = 'navigate';
 state = 'findObjectsTable1';
+%state = 'grasp';
 
 % Create the handle for the basket
 h_basket = handle_basket(2, 0);
@@ -443,6 +444,13 @@ while true,
             vrchk(vrep, res, true);
             pause(1.5)
             fsm = 'path';
+            
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TO DELETE LATER  the next part with state = 'grasp'; %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            state = 'grasp';
+            
+            
         else % else we go to the 8 points to take a picture
             if strcmp(fsm, 'path'),
                 if cnt_path < 5 % During 3 timesteps we put all speed to 0 to be sure the robot stop
@@ -528,6 +536,221 @@ while true,
             end
             
         end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Attention : To change and to move in function of armRef (youBot_ref)
+% rather than ref (youBot_center) when going close to the target
+% See youbot_init
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    elseif strcmp(state, 'grasp'),
+        if isempty(h_objects_table1.centers_objects)
+            fprintf('In grasp \n');
+            fct_give_centers_table1(h_objects_table1) % To complete for the future
+            SEObject = strel('disk', 3);
+            map_circle = imdilate(map_plot_input,SEObject);
+        else % else we go to the 8 points to take a picture
+            if strcmp(fsm, 'path'),
+                if cnt_path < 5 % During 3 timesteps we put all speed to 0 to be sure the robot stop
+                    forwBackVel = 0; % Robot must not move while computing because we loose VREP comm during this time
+                    leftRightVel = 0;
+                    rotVel = 0;
+                    h = youbot_drive(vrep, h, forwBackVel, leftRightVel, rotVel);
+                    cnt_path = cnt_path+1;
+                else
+                    start = youbot_abs;
+                    fprintf('Begin to find the path to go to pick an object \n');
+                    % We find the closest tagert among the 8 defines to the
+                    % center
+                    if h_objects_table1.cnt_objects_table1 ==  0 % Normally not ok but to be sure
+                        fct_8targets_table1(h_objects_table1, struct_tables, centers_abs, start)
+                        h_objects_table1.cnt_objects_table1 = 1;
+                    end
+                    d = sqrt((h_objects_table1.target_xy_abs(:,1)-h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,1)).^2 + ...
+                        (h_objects_table1.target_xy_abs(:,2)-h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,2)).^2);
+                    [~,idx_goal] = sort(d);
+                    goal = h_objects_table1.target_xy_map(idx_goal(1),:);
+                    %[path,mapPath_cost] = ourPathPlannerBest(map_modif, goal, start, map);
+                    [path,~] = ourPathPlannerBest(map_circle, goal, start);
+                    fprintf('Path computed \n');
+                    fct_give_path(start, goal, map_circle, youbotPos, path, RTr, step_path, cell_map, h_path)
+                    fprintf('Computing a new path finished \n');
+                    fprintf('Rotate \n');
+                    prevErrRot = 0;
+                    fsm = 'rotate';
+                end
+            elseif strcmp(fsm, 'rotate'),
+                forwBackVel = 0;
+                leftRightVel = 0;
+                [rotVel,errRot, fsmReturn] = fct_rotate(youbotPos, youbotEuler, cell_map, map, h_path, prevErrRot);
+                prevErrRot = errRot;
+                if strcmp(fsmReturn, 'path'),
+                    fsm = 'path';
+                elseif strcmp(fsmReturn, 'drive'),
+                    fsm = 'drive';
+                    prevErrDr = 0;
+                end
+            elseif strcmp(fsm, 'drive'),
+                fprintf('In drive \n');
+                [rotVel, errRot, forwBackVel, leftRightVel, errDr, fsmReturn] = fct_drive(youbotPos, youbotEuler, h_path, cell_map, prevErrRot, prevErrDr);
+                prevErrRot = errRot;
+                prevErrDr = errDr;
+                if strcmp(fsmReturn, 'finished_curr_path'),
+                    cnt_finished_path = 0;
+                    forwBackVel = 0;
+                    leftRightVel = 0;
+                    rotVel = 0;
+                    cnt_finished_curr_path = 0;
+                    fsm = 'finished_curr_path_rot';
+                    fprintf('Go to orientate with the target \n');
+                end
+ 
+            elseif strcmp(fsm, 'finished_curr_path_rot'), % To re-oriente correctly before move precise
+                forwBackVel = 0;
+                leftRightVel = 0;
+                rotVel = 0;
+                cnt_finished_curr_path = cnt_finished_curr_path + 1;
+                if cnt_finished_curr_path > 10
+                    %[rotVel,errRot, fsmReturn] = fct_rotate(youbotPos, youbotEuler, cell_map, map, h_path, prevErrRot);
+                    [rotVel] = youbot_rotate_precise(youbotPos(1), youbotPos(2), youbotEuler(3), ...
+                        h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,1), ...
+                        h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,2));
+                    if abs(rotVel) < 0.02
+                        fsm = 'finished_curr_path';
+                        cnt_finished_curr_path = 0;
+                        prevErrDr = 0;
+                        fprintf('Go to approach to the target \n');
+                        h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:)
+                    end
+                end
+            elseif strcmp(fsm, 'finished_curr_path'),
+                forwBackVel = 0;
+                leftRightVel = 0;
+                rotVel = 0;
+                cnt_finished_curr_path = cnt_finished_curr_path +1;
+                if cnt_finished_curr_path > 10
+                    [res t] = vrep.simxGetObjectPosition(id, h.armRef, -1,...
+                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    vrchk(vrep, res, true);
+                    [res o] = vrep.simxGetObjectOrientation(id, h.armRef, -1,...
+                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    vrchk(vrep, res, true);
+                    [rotVel, forwBackVel, leftRightVel, errDr, fsmReturn] = fct_move_precise_grasp(youbotPos, youbotEuler, ...
+                        h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), prevErrDr);
+                    prevErrDr = errDr;
+                    if strcmp(fsmReturn, 'finished'),
+                        fprintf('Close enough from target and snapshot_move \n');
+                        fsm = 'snapshot_move';
+                        cnt_snapshot_move = 0;
+                        res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
+                                       vrep.simx_opmode_oneshot_wait); % km_mode = 2 => robot will try to move the *position* of ptip to the *position* of ptarget.
+                        [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
+                                         vrep.simx_opmode_buffer);
+                        vrchk(vrep, res, true);
+                        res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [tpos(1) tpos(2) 0.25],...
+                            vrep.simx_opmode_oneshot);  % We update the target
+                        vrchk(vrep, res, true);
+                        fsm = 'snapshot';
+                    end
+                end
+                
+            elseif strcmp(fsm, 'snapshot_move'),
+                cnt_snapshot_move = cnt_snapshot_move+ 1;
+                if cnt_snapshot_move == 10
+                    [res t] = vrep.simxGetObjectPosition(id, h.armRef, -1,...
+                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    vrchk(vrep, res, true);
+                    [res o] = vrep.simxGetObjectOrientation(id, h.armRef, -1,...
+                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    vrchk(vrep, res, true);
+
+                    refRoom2armRef = transl(t) * trotx(o(1)) * troty(o(2)) * trotz(o(3));
+                    myTarget = refRoom2armRef\[h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:).';1];
+                    res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
+                        vrep.simx_opmode_oneshot_wait);
+                    vrchk(vrep, res, true);
+
+                    res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTarget(1) myTarget(2) 0.38],...
+                        vrep.simx_opmode_oneshot);  % We update the target
+                    vrchk(vrep, res, true);
+                    cnt_extend1 = 0;
+                    fsm = 'extend1';
+                end
+             
+            elseif strcmp(fsm, 'extend1'),
+                cnt_extend1 = cnt_extend1 + 1;
+                if cnt_extend1 == 15
+                    res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
+                        vrep.simx_opmode_oneshot_wait);
+                    vrchk(vrep, res, true);
+                    
+                    res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTarget(1) myTarget(2) myTarget(3)],...
+                        vrep.simx_opmode_oneshot);  % We update the target
+                    vrchk(vrep, res, true);
+                    fsm = 'extend2';
+                end
+             
+            elseif strcmp(fsm, 'extend2'),
+                fprintf('In extend \n');
+                [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
+                    vrep.simx_opmode_buffer); % We get back the position of the tip compared to the armRef
+                vrchk(vrep, res, true);
+                if norm(tpos-[myTarget(1) myTarget(2) myTarget(3)]) < .002,
+                    res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
+                        vrep.simx_opmode_oneshot_wait); % km_mode = 2 => robot will try to move the *position* of ptip to the *position* of ptarget.
+                    fsm = 'grasp';
+                end
+            elseif strcmp(fsm, 'reachout'),
+                [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
+                    vrep.simx_opmode_buffer);
+                vrchk(vrep, res, true);
+                
+                tpos(1) = tpos(1)+.03;
+                res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, tpos,...
+                    vrep.simx_opmode_oneshot);  % We update the target
+                vrchk(vrep, res, true);
+                fsm = 'grasp';
+            elseif strcmp(fsm, 'grasp'),
+                res = vrep.simxSetIntegerSignal(id, 'gripper_open', 0,...
+                    vrep.simx_opmode_oneshot_wait); % The gripper closes and applies a constant force inwards
+                vrchk(vrep, res);
+                pause(2);
+                res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTargetUp(1) myTargetUp(2) 0.50],...
+                    vrep.simx_opmode_oneshot);  % We update the target
+                vrchk(vrep, res, true);
+                
+                res = vrep.simxSetIntegerSignal(id, 'km_mode', 0,...
+                    vrep.simx_opmode_oneshot_wait); % The arm joints are in position-control mode. Use simxSetJointTargetPosition to change the arm's configuration.
+                fsm = 'backoff';
+            elseif strcmp(fsm, 'backoff'),
+                for i = 1:5,
+                    res = vrep.simxSetJointTargetPosition(id, h.armJoints(i),...
+                        startingJoints(i),...
+                        vrep.simx_opmode_oneshot); % We put back all the joints in their starting positions
+                    vrchk(vrep, res, true);
+                end
+                [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
+                    vrep.simx_opmode_buffer);
+                vrchk(vrep, res, true);
+                if norm(tpos-homeGripperPosition) < .02,
+                    [res endGripperPosition] = vrep.simxGetObjectPosition(id, ...
+                        h.ptip,...
+                        h.armRef,...
+                        vrep.simx_opmode_buffer);
+                    vrchk(vrep, res, true);
+                    endGripperPosition
+                    homeGripperPosition
+                    res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1,...
+                        vrep.simx_opmode_oneshot_wait); % If closed enough from starting position, the gripper is opened
+                    vrchk(vrep, res);
+                end
+                if norm(tpos-homeGripperPosition) < .002,
+                    a = 5;
+                    state = 'finished';
+                    cnt_finished = 0;
+                end
+            end
+            
+        end
+        
     elseif strcmp(state, 'finished'),
         forwBackVel = 0;
         leftRightVel = 0;
