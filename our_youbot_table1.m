@@ -163,23 +163,26 @@ while true,
     
     youbot_abs = ceil( (homtrans(RTr,[youbotPos(1); youbotPos(2)]))/cell_map);
     
-    % Read data from the Hokuyo sensor:
-    [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
+    
+    %if ~strcmp(state, 'grasp'),
+        % Read data from the Hokuyo sensor:
+        [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
+    %end
     %We receive the seen points and the obstacles as coordinates in comparison to the youbot
     youbot2absTrans = transl(youbotPos) * trotx(youbotEuler(1)) * troty(youbotEuler(2)) * trotz(youbotEuler(3));
     pts_abs = homtrans(youbot2absTrans, pts);
     pts_final = homtrans(RTr,pts_abs(1:2,:));
     pts_final = ceil(pts_final/cell_map);
     pts_final_precise = ceil(homtrans(RTr,pts_abs(1:2,:))/cell_map_precise);
-    
+
     % To make sure that the hukoyo data belongs to the matrix
     min_tmp = min(pts_final,floor(side_map/cell_map));
     pts_final = max(min_tmp, 1);
-    
+
     % To make sure that the hukoyo data belongs to the matrix
     min_tmp_precise = min(pts_final_precise,floor(side_map/cell_map_precise));
     pts_final_precise = max(min_tmp_precise, 1);
-      
+
     % We update the map
     % Map 2 is a trick to dilate only ones the wall
     map2 = zeros(size(map));
@@ -195,13 +198,13 @@ while true,
     hokuyo2_abs = homtrans(youbot2absTrans,h.hokuyo2Pos.');
     hokuyo1_map = ceil(homtrans(RTr, [hokuyo1_abs(1);hokuyo1_abs(2)])/cell_map);
     hokuyo2_map = ceil(homtrans(RTr, [hokuyo2_abs(1);hokuyo2_abs(2)])/cell_map);
-    
+
     % We compute the box around the robot
     x_left_robot = max(1, (youbot_abs(1) - (5/cell_map)) );
     x_right_robot = min(length(map), (youbot_abs(1) + (5/cell_map)) );
     y_up_robot = min(length(map), (youbot_abs(2) + (5/cell_map)) );
     y_down_robot = max(1,(youbot_abs(2) - (5/cell_map)) );
-    
+
     % We compute where we see the points in the map 
     [X,Y] = meshgrid(x_left_robot:1:x_right_robot, y_down_robot:1:y_up_robot); 
     X = reshape(X, 1, []);
@@ -209,13 +212,13 @@ while true,
 
     in = inpolygon(X,Y, [hokuyo1_map(1) pts_final(1,:) hokuyo2_map(1)],...
                     [hokuyo1_map(2) pts_final(2,:) hokuyo2_map(2)]);                
-   
+
     map_seen(sub2ind(size(map_seen), Y(in), X(in))) = 0;
     map_seen(sub2ind(size(map_seen), hokuyo1_map(2), hokuyo1_map(1))) = 0;
     map_seen(sub2ind(size(map_seen), hokuyo2_map(2), hokuyo2_map(1))) = 0;
     map_seen(sub2ind(size(map_seen), youbot_abs(2), youbot_abs(1))) = 0;
     map_seen(index_dilate) = 0;
-    
+
     map_seen = imerode(map_seen,StructSeen);
     map_seen = idilate(map_seen,StructSeen);
     
@@ -564,10 +567,11 @@ while true,
                         fct_8targets_table1(h_objects_table1, struct_tables, centers_abs, start)
                         h_objects_table1.cnt_objects_table1 = 1;
                     end
-                    d = sqrt((h_objects_table1.target_xy_abs(:,1)-h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,1)).^2 + ...
-                        (h_objects_table1.target_xy_abs(:,2)-h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,2)).^2);
-                    [~,idx_goal] = sort(d);
-                    goal = h_objects_table1.target_xy_map(idx_goal(1),:);
+                    vector = [ (h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,1) -  h_objects_table1.center_table_right_abs(1)); ...
+                                (h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,2) -  h_objects_table1.center_table_right_abs(2)) ];
+                    goal_abs = [h_objects_table1.center_table_right_abs(1) + 3.5*vector(1); ...
+                                h_objects_table1.center_table_right_abs(2) + 3.5*vector(2)];
+                    goal = [ceil( (homtrans(RTr,goal_abs))/cell_map)].';
                     %[path,mapPath_cost] = ourPathPlannerBest(map_modif, goal, start, map);
                     [path,~] = ourPathPlannerBest(map_circle, goal, start);
                     fprintf('Path computed \n');
@@ -627,12 +631,14 @@ while true,
                 rotVel = 0;
                 cnt_finished_curr_path = cnt_finished_curr_path +1;
                 if cnt_finished_curr_path > 10
-                    [res t] = vrep.simxGetObjectPosition(id, h.armRef, -1,...
-                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
-                    vrchk(vrep, res, true);
-                    [res o] = vrep.simxGetObjectOrientation(id, h.armRef, -1,...
-                        vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
-                    vrchk(vrep, res, true);
+                    %[res t] = vrep.simxGetObjectPosition(id, h.armRef, -1,...
+                    %    vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    %vrchk(vrep, res, true);
+                    %[res o] = vrep.simxGetObjectOrientation(id, h.armRef, -1,...
+                    %    vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
+                    %vrchk(vrep, res, true);
+                    %[rotVel, forwBackVel, leftRightVel, errDr, fsmReturn] = fct_move_precise_grasp(t, o, ...
+                    %    h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), prevErrDr);
                     [rotVel, forwBackVel, leftRightVel, errDr, fsmReturn] = fct_move_precise_grasp(youbotPos, youbotEuler, ...
                         h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), h_objects_table1.centers_objects(h_objects_table1.cnt_objects_table1,:), prevErrDr);
                     prevErrDr = errDr;
@@ -640,21 +646,23 @@ while true,
                         fprintf('Close enough from target and snapshot_move \n');
                         fsm = 'snapshot_move';
                         cnt_snapshot_move = 0;
-                        res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
-                                       vrep.simx_opmode_oneshot_wait); % km_mode = 2 => robot will try to move the *position* of ptip to the *position* of ptarget.
-                        [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
-                                         vrep.simx_opmode_buffer);
-                        vrchk(vrep, res, true);
-                        res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [tpos(1) tpos(2) 0.25],...
-                            vrep.simx_opmode_oneshot);  % We update the target
-                        vrchk(vrep, res, true);
-                        fsm = 'snapshot';
+                        fsm = 'snapshot_move';
                     end
                 end
                 
             elseif strcmp(fsm, 'snapshot_move'),
                 cnt_snapshot_move = cnt_snapshot_move+ 1;
                 if cnt_snapshot_move == 10
+                    % We put the grip up during a few moment
+                    res = vrep.simxSetIntegerSignal(id, 'km_mode', 2,...
+                        vrep.simx_opmode_oneshot_wait); % km_mode = 2 => robot will try to move the *position* of ptip to the *position* of ptarget.
+                    [res tpos] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef,...
+                        vrep.simx_opmode_buffer);
+                    vrchk(vrep, res, true);
+                    res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [tpos(1) tpos(2) 0.25],...
+                        vrep.simx_opmode_oneshot);  % We update the target
+                    vrchk(vrep, res, true);
+                    pause(1.2);
                     [res t] = vrep.simxGetObjectPosition(id, h.armRef, -1,...
                         vrep.simx_opmode_oneshot_wait); % We get back the position of the tip compared to the armRef
                     vrchk(vrep, res, true);
@@ -671,6 +679,7 @@ while true,
                     res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTarget(1) myTarget(2) 0.38],...
                         vrep.simx_opmode_oneshot);  % We update the target
                     vrchk(vrep, res, true);
+                    pause(1.2);
                     cnt_extend1 = 0;
                     fsm = 'extend1';
                 end
@@ -685,6 +694,7 @@ while true,
                     res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTarget(1) myTarget(2) myTarget(3)],...
                         vrep.simx_opmode_oneshot);  % We update the target
                     vrchk(vrep, res, true);
+                    pause(1.2);
                     fsm = 'extend2';
                 end
              
@@ -713,10 +723,11 @@ while true,
                     vrep.simx_opmode_oneshot_wait); % The gripper closes and applies a constant force inwards
                 vrchk(vrep, res);
                 pause(2);
-                res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTargetUp(1) myTargetUp(2) 0.50],...
+                res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, [myTarget(1) myTarget(2) 0.50],...
                     vrep.simx_opmode_oneshot);  % We update the target
                 vrchk(vrep, res, true);
-                
+                pause(1.5);
+                %a = 5;
                 res = vrep.simxSetIntegerSignal(id, 'km_mode', 0,...
                     vrep.simx_opmode_oneshot_wait); % The arm joints are in position-control mode. Use simxSetJointTargetPosition to change the arm's configuration.
                 fsm = 'backoff';
